@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Competition Tracker - Monitoring Lomba (Supabase)</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Chart.js untuk Gantt/Timeline -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+
+    <!-- Supabase SDK -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <!-- Google Font -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; }
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        
+        .status-chip {
+            font-size: 0.75rem;
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Loading Overlay -->
+    <div id="auth-loading" class="fixed inset-0 bg-white z-50 flex flex-col items-center justify-center">
+        <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mb-4"></div>
+        <p class="text-gray-500">Menghubungkan ke Supabase...</p>
+    </div>
+
+    <!-- Main App Container -->
+    <div id="app-container" class="hidden min-h-screen flex flex-col md:flex-row">
+        
+        <!-- Sidebar -->
+        <aside class="w-full md:w-64 bg-white border-r border-gray-200 flex-shrink-0 z-20">
+            <div class="p-6 border-b border-gray-100">
+                <h1 class="text-xl font-bold text-green-600 flex items-center gap-2">
+                    <i class="fa-solid fa-bolt"></i> CompTracker
+                </h1>
+                <p class="text-xs text-gray-400 mt-1" id="user-display">Guest Mode</p>
+            </div>
+            
+            <nav class="p-4 space-y-2">
+                <button onclick="switchView('dashboard')" class="nav-item w-full text-left px-4 py-3 rounded-lg bg-green-50 text-green-700 font-medium hover:bg-green-50 transition-colors">
+                    <i class="fa-solid fa-chart-pie w-6"></i> Dashboard
+                </button>
+                <button onclick="switchView('list')" class="nav-item w-full text-left px-4 py-3 rounded-lg text-gray-600 font-medium hover:bg-gray-50 transition-colors">
+                    <i class="fa-solid fa-list w-6"></i> Daftar Lomba
+                </button>
+            </nav>
+
+            <div class="p-4 mt-auto border-t border-gray-100">
+                <button onclick="openModal()" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-xl shadow-lg transition-all transform hover:scale-[1.02] flex items-center justify-center gap-2">
+                    <i class="fa-solid fa-plus"></i> Tambah Lomba
+                </button>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="flex-1 overflow-y-auto p-4 md:p-8">
+            
+            <!-- Dashboard View -->
+            <div id="view-dashboard" class="space-y-6">
+                <header class="flex justify-between items-center mb-6">
+                    <div>
+                        <h2 class="text-2xl font-bold text-gray-800">Ringkasan Kompetisi</h2>
+                        <p class="text-gray-500 text-sm">Powered by Supabase</p>
+                    </div>
+                </header>
+
+                <!-- Stats Cards -->
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-center justify-between">
+                        <div>
+                            <p class="text-gray-500 text-sm font-medium">Lomba Aktif</p>
+                            <h3 class="text-3xl font-bold text-gray-800" id="stat-active">0</h3>
+                        </div>
+                        <div class="h-12 w-12 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-xl">
+                            <i class="fa-solid fa-rocket"></i>
+                        </div>
+                    </div>
+                    <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-center justify-between">
+                        <div>
+                            <p class="text-gray-500 text-sm font-medium">Deadline Dekat</p>
+                            <h3 class="text-3xl font-bold text-red-600" id="stat-urgent">0</h3>
+                        </div>
+                        <div class="h-12 w-12 bg-red-100 text-red-600 rounded-full flex items-center justify-center text-xl">
+                            <i class="fa-solid fa-clock"></i>
+                        </div>
+                    </div>
+                    <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-center justify-between">
+                        <div>
+                            <p class="text-gray-500 text-sm font-medium">Selesai</p>
+                            <h3 class="text-3xl font-bold text-green-600" id="stat-done">0</h3>
+                        </div>
+                        <div class="h-12 w-12 bg-green-100 text-green-600 rounded-full flex items-center justify-center text-xl">
+                            <i class="fa-solid fa-check-circle"></i>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Gantt Chart Section -->
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                    <h3 class="text-lg font-bold text-gray-800 mb-4">Timeline Lomba (Gantt Chart)</h3>
+                    <div class="relative h-[300px] w-full">
+                        <canvas id="ganttChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- List View (Hidden by default) -->
+            <div id="view-list" class="hidden space-y-6">
+                <header class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
+                    <div>
+                        <h2 class="text-2xl font-bold text-gray-800">Daftar Kompetisi</h2>
+                        <p class="text-gray-500 text-sm">Kelola semua submission Anda</p>
+                    </div>
+                    <div class="flex gap-2 w-full md:w-auto">
+                        <div class="relative flex-1 md:w-64">
+                            <i class="fa-solid fa-search absolute left-3 top-3 text-gray-400"></i>
+                            <input type="text" id="searchInput" placeholder="Cari lomba..." class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:outline-none">
+                        </div>
+                        <select id="filterType" class="border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-green-500 focus:outline-none bg-white">
+                            <option value="all">Semua Tipe</option>
+                            <option value="IT/Coding">IT/Coding</option>
+                            <option value="Desain">Desain</option>
+                            <option value="Bisnis">Bisnis</option>
+                            <option value="Karya Tulis">Karya Tulis</option>
+                            <option value="Lainnya">Lainnya</option>
+                        </select>
+                    </div>
+                </header>
+
+                <div id="competitions-grid" class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <!-- Cards will be injected here -->
+                </div>
+                
+                <div id="empty-state" class="hidden text-center py-12">
+                    <div class="text-gray-300 text-6xl mb-4"><i class="fa-solid fa-folder-open"></i></div>
+                    <h3 class="text-lg font-medium text-gray-600">Belum ada data lomba</h3>
+                    <p class="text-gray-400 mb-4">Data di Supabase masih kosong atau belum dimuat.</p>
+                    <button onclick="openModal()" class="text-green-600 font-medium hover:underline">Tambah Sekarang</button>
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <!-- Modal Form -->
+    <div id="modal" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden flex items-center justify-center p-4 overflow-y-auto">
+        <div class="bg-white rounded-2xl w-full max-w-lg shadow-2xl transform transition-all">
+            <div class="p-6 border-b border-gray-100 flex justify-between items-center">
+                <h3 class="text-xl font-bold text-gray-800" id="modal-title">Tambah Kompetisi Baru</h3>
+                <button onclick="closeModal()" class="text-gray-400 hover:text-gray-600 text-xl"><i class="fa-solid fa-times"></i></button>
+            </div>
+            
+            <form id="compForm" class="p-6 space-y-4">
+                <input type="hidden" id="compId">
+                
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Nama Lomba / Judul</label>
+                    <input type="text" id="title" required class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-green-500 focus:outline-none" placeholder="Contoh: Gemastik 2025">
+                </div>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Kategori</label>
+                        <select id="type" class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-green-500 focus:outline-none">
+                            <option value="IT/Coding">IT/Coding</option>
+                            <option value="Desain">Desain</option>
+                            <option value="Bisnis">Bisnis</option>
+                            <option value="Karya Tulis">Karya Tulis</option>
+                            <option value="Lainnya">Lainnya</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                        <select id="status" class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-green-500 focus:outline-none">
+                            <option value="Daftar">Baru Daftar</option>
+                            <option value="Proses">Sedang Dikerjakan</option>
+                            <option value="Submit">Sudah Submit</option>
+                            <option value="Selesai">Selesai</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Tanggal Mulai</label>
+                        <input type="date" id="startDate" required class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-green-500 focus:outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Deadline</label>
+                        <input type="date" id="deadline" required class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-green-500 focus:outline-none">
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Deskripsi & Catatan</label>
+                    <textarea id="description" rows="3" class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-green-500 focus:outline-none" placeholder="Tim: Saya, Budi, Andi..."></textarea>
+                </div>
+
+                <div class="space-y-3 pt-2 border-t border-gray-100">
+                    <p class="text-xs font-semibold text-gray-500 uppercase">Tautan Penting</p>
+                    <div class="flex items-center gap-2">
+                        <i class="fa-solid fa-book text-gray-400 w-5"></i>
+                        <input type="url" id="rulesLink" class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-green-500 outline-none" placeholder="Link Guidebook / Peraturan">
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <i class="fa-solid fa-upload text-gray-400 w-5"></i>
+                        <input type="url" id="submissionLink" class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-green-500 outline-none" placeholder="Link Submission / Upload">
+                    </div>
+                </div>
+
+                <div class="pt-4 flex gap-3">
+                    <button type="button" onclick="closeModal()" class="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium">Batal</button>
+                    <button type="submit" class="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium shadow-md">Simpan</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // --- SUPABASE CONFIGURATION ---
+        const supabaseUrl = 'https://nzsvcqddeeraagfqvgki.supabase.co';
+        const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im56c3ZjcWRkZWVyYWFnZnF2Z2tpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ0NzUyMzgsImV4cCI6MjA4MDA1MTIzOH0.y2EMdprhiMyesq63d9AmXzUrhPIisr_9ze_rSc8WPOY';
+        const supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
+
+        let currentUser = null;
+        let competitions = [];
+        let chartInstance = null;
+
+        // --- INIT APP & AUTH ---
+        // Karena Supabase Auth butuh setup, kita pakai simulasi "Guest ID" lokal agar app langsung jalan
+        function initApp() {
+            let guestId = localStorage.getItem('comp_tracker_guest_id');
+            if (!guestId) {
+                guestId = 'guest-' + Math.random().toString(36).substr(2, 9);
+                localStorage.setItem('comp_tracker_guest_id', guestId);
+            }
+            
+            currentUser = { id: guestId };
+            document.getElementById('user-display').innerText = `ID: ${currentUser.id}`;
+            document.getElementById('auth-loading').classList.add('hidden');
+            document.getElementById('app-container').classList.remove('hidden');
+
+            fetchCompetitions();
+            setupRealtimeSubscription();
+        }
+
+        // --- DATA LOGIC (Supabase) ---
+        
+        async function fetchCompetitions() {
+            // Mengambil data dari tabel 'competitions'
+            // NOTE: Pastikan Anda sudah membuat tabel 'competitions' di Supabase dengan kolom yang sesuai
+            try {
+                const { data, error } = await supabase
+                    .from('competitions')
+                    .select('*')
+                    .eq('user_id', currentUser.id)
+                    .order('deadline', { ascending: true });
+
+                if (error) throw error;
+
+                if (data) {
+                    // Mapping snake_case (DB) ke camelCase (UI)
+                    competitions = data.map(item => ({
+                        id: item.id,
+                        title: item.title,
+                        type: item.type,
+                        status: item.status,
+                        startDate: item.start_date, // snake_case dari DB
+                        deadline: item.deadline,
+                        description: item.description,
+                        rulesLink: item.rules_link,
+                        submissionLink: item.submission_link
+                    }));
+                    
+                    renderDashboard();
+                    renderList();
+                }
+            } catch (err) {
+                console.error("Error fetching data:", err);
+                if(err.code === "PGRST116" || err.message.includes("does not exist")) {
+                    alert("Tabel 'competitions' belum ditemukan di Supabase Anda. Mohon buat tabel tersebut terlebih dahulu.");
+                }
+            }
+        }
+
+        function setupRealtimeSubscription() {
+            // Subscribe ke perubahan data realtime
+            supabase
+                .channel('public:competitions')
+                .on('postgres_changes', { event: '*', schema: 'public', table: 'competitions', filter: `user_id=eq.${currentUser.id}` }, (payload) => {
+                    console.log('Change received!', payload);
+                    fetchCompetitions();
+                })
+                .subscribe();
+        }
+
+        // --- RENDERING LOGIC ---
+
+        function renderDashboard() {
+            const active = competitions.filter(c => c.status !== 'Selesai').length;
+            const done = competitions.filter(c => c.status === 'Selesai' || c.status === 'Submit').length;
+            
+            const today = new Date();
+            const nextWeek = new Date();
+            nextWeek.setDate(today.getDate() + 7);
+            
+            const urgent = competitions.filter(c => {
+                if(c.status === 'Selesai') return false;
+                const d = new Date(c.deadline);
+                return d >= today && d <= nextWeek;
+            }).length;
+
+            document.getElementById('stat-active').innerText = active;
+            document.getElementById('stat-urgent').innerText = urgent;
+            document.getElementById('stat-done').innerText = done;
+
+            updateChart();
+        }
+
+        function updateChart() {
+            const ctx = document.getElementById('ganttChart').getContext('2d');
+            
+            const chartData = competitions.map(c => {
+                return {
+                    x: [new Date(c.startDate).setHours(0,0,0,0), new Date(c.deadline).setHours(23,59,59,999)],
+                    y: c.title,
+                    status: c.status
+                };
+            });
+
+            if (chartInstance) {
+                chartInstance.destroy();
+            }
+
+            const todayLine = {
+                id: 'todayLine',
+                beforeDatasetsDraw(chart, args, pluginOptions) {
+                    const { ctx, chartArea: { top, bottom }, scales: { x } } = chart;
+                    const xPos = x.getPixelForValue(new Date());
+                    
+                    ctx.save();
+                    ctx.beginPath();
+                    ctx.strokeStyle = 'rgba(239, 68, 68, 0.7)';
+                    ctx.lineWidth = 2;
+                    ctx.setLineDash([6, 6]);
+                    ctx.moveTo(xPos, top);
+                    ctx.lineTo(xPos, bottom);
+                    ctx.stroke();
+                    ctx.restore();
+                }
+            };
+
+            chartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: competitions.map(c => c.title),
+                    datasets: [{
+                        label: 'Durasi Kompetisi',
+                        data: chartData,
+                        backgroundColor: (ctx) => {
+                            const raw = ctx.raw;
+                            if (!raw) return '#4f46e5';
+                            if (raw.status === 'Selesai') return '#166534'; 
+                            if (raw.status === 'Submit') return '#10b981'; 
+                            if (raw.status === 'Proses') return '#f59e0b'; 
+                            return '#4f46e5'; 
+                        },
+                        borderWidth: 0,
+                        barPercentage: 0.5
+                    }]
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: {
+                            type: 'time',
+                            time: { unit: 'day', displayFormats: { day: 'd MMM' } },
+                            min: new Date(new Date().setDate(new Date().getDate() - 5)), 
+                            grid: { color: '#f3f4f6' }
+                        },
+                        y: { grid: { display: false } }
+                    },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    const d = context.raw;
+                                    const start = new Date(d.x[0]).toLocaleDateString('id-ID');
+                                    const end = new Date(d.x[1]).toLocaleDateString('id-ID');
+                                    return `${d.status}: ${start} - ${end}`;
+                                }
+                            }
+                        }
+                    }
+                },
+                plugins: [todayLine]
+            });
+        }
+
+        function renderList() {
+            const grid = document.getElementById('competitions-grid');
+            const searchVal = document.getElementById('searchInput').value.toLowerCase();
+            const filterType = document.getElementById('filterType').value;
+            
+            grid.innerHTML = '';
+            
+            let filtered = competitions.filter(c => {
+                const matchSearch = c.title.toLowerCase().includes(searchVal) || (c.description && c.description.toLowerCase().includes(searchVal));
+                const matchType = filterType === 'all' || c.type === filterType;
+                return matchSearch && matchType;
+            });
+
+            if (filtered.length === 0) {
+                document.getElementById('empty-state').classList.remove('hidden');
+                return;
+            } else {
+                document.getElementById('empty-state').classList.add('hidden');
+            }
+
+            filtered.forEach(c => {
+                const deadlineDate = new Date(c.deadline);
+                const daysLeft = Math.ceil((deadlineDate - new Date()) / (1000 * 60 * 60 * 24));
+                
+                let deadlineClass = 'text-gray-600';
+                let deadlineText = `Deadline: ${deadlineDate.toLocaleDateString('id-ID', {day: 'numeric', month: 'short', year: 'numeric'})}`;
+                
+                if (c.status !== 'Selesai') {
+                    if (daysLeft < 0) {
+                        deadlineClass = 'text-red-600 font-bold';
+                        deadlineText = 'Terlewat!';
+                    } else if (daysLeft <= 3) {
+                        deadlineClass = 'text-red-600 font-bold';
+                        deadlineText = `${daysLeft} hari lagi!`;
+                    } else if (daysLeft <= 7) {
+                        deadlineClass = 'text-orange-500 font-medium';
+                        deadlineText = `${daysLeft} hari lagi`;
+                    }
+                }
+
+                let badgeClass = 'bg-gray-100 text-gray-600';
+                if(c.status === 'Proses') badgeClass = 'bg-yellow-100 text-yellow-700';
+                if(c.status === 'Submit') badgeClass = 'bg-blue-100 text-blue-700';
+                if(c.status === 'Selesai') badgeClass = 'bg-green-100 text-green-700';
+
+                const card = document.createElement('div');
+                card.className = 'bg-white rounded-xl shadow-sm border border-gray-100 p-5 hover:shadow-md transition-shadow relative group';
+                
+                card.innerHTML = `
+                    <div class="flex justify-between items-start mb-3">
+                        <div>
+                            <span class="inline-block px-2 py-1 rounded text-xs font-semibold bg-green-50 text-green-600 mb-2">${c.type}</span>
+                            <h3 class="font-bold text-lg text-gray-800 leading-tight">${c.title}</h3>
+                        </div>
+                        <span class="px-3 py-1 rounded-full text-xs font-bold ${badgeClass}">${c.status}</span>
+                    </div>
+                    
+                    <p class="text-gray-500 text-sm mb-4 line-clamp-2">${c.description || 'Tidak ada deskripsi.'}</p>
+                    
+                    <div class="flex items-center gap-3 text-sm mb-4">
+                        <div class="flex items-center gap-1.5 ${deadlineClass}">
+                            <i class="fa-regular fa-clock"></i>
+                            <span>${deadlineText}</span>
+                        </div>
+                    </div>
+
+                    <div class="flex gap-2 mt-auto pt-4 border-t border-gray-50">
+                        ${c.rulesLink ? `<a href="${c.rulesLink}" target="_blank" class="flex-1 text-center py-2 text-sm bg-gray-50 hover:bg-gray-100 text-gray-700 rounded-lg transition-colors"><i class="fa-solid fa-book mr-1"></i> Rules</a>` : ''}
+                        ${c.submissionLink ? `<a href="${c.submissionLink}" target="_blank" class="flex-1 text-center py-2 text-sm bg-green-50 hover:bg-green-100 text-green-700 rounded-lg transition-colors"><i class="fa-solid fa-upload mr-1"></i> Submit</a>` : ''}
+                        <button class="w-10 h-9 flex items-center justify-center text-gray-400 hover:text-blue-500 rounded-lg border border-transparent hover:border-gray-200" onclick="window.editComp('${c.id}')"><i class="fa-solid fa-pen"></i></button>
+                        <button class="w-10 h-9 flex items-center justify-center text-gray-400 hover:text-red-500 rounded-lg border border-transparent hover:border-gray-200" onclick="window.deleteComp('${c.id}')"><i class="fa-solid fa-trash"></i></button>
+                    </div>
+                `;
+                grid.appendChild(card);
+            });
+        }
+
+        // --- USER ACTIONS ---
+
+        window.openModal = (reset = true) => {
+            const form = document.getElementById('compForm');
+            if(reset) {
+                form.reset();
+                document.getElementById('compId').value = '';
+                document.getElementById('modal-title').innerText = 'Tambah Kompetisi Baru';
+                const today = new Date().toISOString().split('T')[0];
+                document.getElementById('startDate').value = today;
+                document.getElementById('deadline').value = today;
+            }
+            document.getElementById('modal').classList.remove('hidden');
+        };
+
+        window.closeModal = () => {
+            document.getElementById('modal').classList.add('hidden');
+        };
+
+        window.editComp = (id) => {
+            const c = competitions.find(x => x.id == id);
+            if(!c) return;
+            
+            document.getElementById('compId').value = c.id;
+            document.getElementById('title').value = c.title;
+            document.getElementById('type').value = c.type;
+            document.getElementById('status').value = c.status;
+            document.getElementById('startDate').value = c.startDate;
+            document.getElementById('deadline').value = c.deadline;
+            document.getElementById('description').value = c.description;
+            document.getElementById('rulesLink').value = c.rulesLink || '';
+            document.getElementById('submissionLink').value = c.submissionLink || '';
+            
+            document.getElementById('modal-title').innerText = 'Edit Kompetisi';
+            window.openModal(false);
+        };
+
+        window.deleteComp = async (id) => {
+            if(confirm('Yakin ingin menghapus lomba ini?')) {
+                try {
+                    const { error } = await supabase.from('competitions').delete().eq('id', id);
+                    if (error) throw error;
+                    // Realtime will handle refresh, but we can optimistically remove too
+                    fetchCompetitions();
+                } catch(e) {
+                    alert("Error menghapus: " + e.message);
+                }
+            }
+        };
+
+        window.switchView = (viewName) => {
+            const dashboard = document.getElementById('view-dashboard');
+            const list = document.getElementById('view-list');
+            const navs = document.querySelectorAll('.nav-item');
+            
+            navs.forEach(n => n.classList.remove('bg-green-50', 'text-green-700'));
+            
+            if (viewName === 'dashboard') {
+                dashboard.classList.remove('hidden');
+                list.classList.add('hidden');
+                navs[0].classList.add('bg-green-50', 'text-green-700');
+            } else {
+                dashboard.classList.add('hidden');
+                list.classList.remove('hidden');
+                navs[1].classList.add('bg-green-50', 'text-green-700');
+            }
+        };
+
+        document.getElementById('compForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const id = document.getElementById('compId').value;
+            // Mapping UI (camelCase) -> DB (snake_case)
+            const formData = {
+                user_id: currentUser.id,
+                title: document.getElementById('title').value,
+                type: document.getElementById('type').value,
+                status: document.getElementById('status').value,
+                start_date: document.getElementById('startDate').value,
+                deadline: document.getElementById('deadline').value,
+                description: document.getElementById('description').value,
+                rules_link: document.getElementById('rulesLink').value,
+                submission_link: document.getElementById('submissionLink').value
+            };
+
+            const btn = e.target.querySelector('button[type="submit"]');
+            const oldText = btn.innerText;
+            btn.innerText = 'Menyimpan...';
+            btn.disabled = true;
+
+            try {
+                let error;
+                if (id) {
+                    // Update
+                    const res = await supabase.from('competitions').update(formData).eq('id', id);
+                    error = res.error;
+                } else {
+                    // Create
+                    const res = await supabase.from('competitions').insert([formData]);
+                    error = res.error;
+                }
+                
+                if (error) throw error;
+                closeModal();
+                fetchCompetitions(); // Refresh manual just in case realtime delays
+            } catch (err) {
+                console.error(err);
+                alert('Gagal menyimpan: ' + err.message);
+            } finally {
+                btn.innerText = oldText;
+                btn.disabled = false;
+            }
+        });
+
+        // Filter Listeners
+        document.getElementById('searchInput').addEventListener('input', renderList);
+        document.getElementById('filterType').addEventListener('change', renderList);
+
+        // Run App
+        initApp();
+
+    </script>
+</body>
+</html>
