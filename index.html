@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Competition Tracker - Monitoring Lomba (Supabase)</title>
+    <title>Competition Tracker - Connected</title>
     
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -81,7 +81,7 @@
                 <header class="flex justify-between items-center mb-6">
                     <div>
                         <h2 class="text-2xl font-bold text-gray-800">Ringkasan Kompetisi</h2>
-                        <p class="text-gray-500 text-sm">Powered by Supabase</p>
+                        <p class="text-gray-500 text-sm">Terhubung ke Database</p>
                     </div>
                 </header>
 
@@ -246,13 +246,19 @@
         let currentUser = null;
         let competitions = [];
         let chartInstance = null;
+        
+        // ID ini dari data yang Anda berikan agar data existing langsung muncul
+        const EXISTING_GUEST_ID = 'guest-s8k0h19ql'; 
 
         // --- INIT APP & AUTH ---
-        // Karena Supabase Auth butuh setup, kita pakai simulasi "Guest ID" lokal agar app langsung jalan
         function initApp() {
+            // Kita gunakan ID yang sesuai dengan data Anda agar tabel terisi
             let guestId = localStorage.getItem('comp_tracker_guest_id');
-            if (!guestId) {
-                guestId = 'guest-' + Math.random().toString(36).substr(2, 9);
+            
+            // Jika belum ada ID, atau ID di localstorage beda dengan data sampel, 
+            // kita paksa pakai ID sampel 'guest-s8k0h19ql' agar Anda bisa lihat datanya
+            if (!guestId || guestId !== EXISTING_GUEST_ID) {
+                guestId = EXISTING_GUEST_ID;
                 localStorage.setItem('comp_tracker_guest_id', guestId);
             }
             
@@ -268,9 +274,8 @@
         // --- DATA LOGIC (Supabase) ---
         
         async function fetchCompetitions() {
-            // Mengambil data dari tabel 'competitions'
-            // NOTE: Pastikan Anda sudah membuat tabel 'competitions' di Supabase dengan kolom yang sesuai
             try {
+                // Mengambil data berdasarkan ID 'guest-s8k0h19ql'
                 const { data, error } = await supabase
                     .from('competitions')
                     .select('*')
@@ -298,8 +303,8 @@
                 }
             } catch (err) {
                 console.error("Error fetching data:", err);
-                if(err.code === "PGRST116" || err.message.includes("does not exist")) {
-                    alert("Tabel 'competitions' belum ditemukan di Supabase Anda. Mohon buat tabel tersebut terlebih dahulu.");
+                if(err.message.includes("does not exist")) {
+                    alert("Tabel tidak ditemukan. Pastikan nama tabel adalah 'competitions'.");
                 }
             }
         }
@@ -342,8 +347,12 @@
             const ctx = document.getElementById('ganttChart').getContext('2d');
             
             const chartData = competitions.map(c => {
+                // Parsing tanggal string 'YYYY-MM-DD' agar aman timezone
+                const start = new Date(c.startDate);
+                const end = new Date(c.deadline);
+                
                 return {
-                    x: [new Date(c.startDate).setHours(0,0,0,0), new Date(c.deadline).setHours(23,59,59,999)],
+                    x: [start.setHours(0,0,0,0), end.setHours(23,59,59,999)],
                     y: c.title,
                     status: c.status
                 };
@@ -540,7 +549,6 @@
                 try {
                     const { error } = await supabase.from('competitions').delete().eq('id', id);
                     if (error) throw error;
-                    // Realtime will handle refresh, but we can optimistically remove too
                     fetchCompetitions();
                 } catch(e) {
                     alert("Error menghapus: " + e.message);
@@ -602,7 +610,7 @@
                 
                 if (error) throw error;
                 closeModal();
-                fetchCompetitions(); // Refresh manual just in case realtime delays
+                fetchCompetitions();
             } catch (err) {
                 console.error(err);
                 alert('Gagal menyimpan: ' + err.message);
